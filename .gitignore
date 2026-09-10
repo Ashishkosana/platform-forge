@@ -1,3 +1,6 @@
+# Project 2 is a separate git repository. Never commit it here.
+/ai-reliability-control-plane/
+
 .venv/
 __pycache__/
 *.py[cod]

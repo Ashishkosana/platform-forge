@@ -2,7 +2,7 @@
 
 This is the planning artifact. It is not an architecture dump and it is not a license to generate three codebases.
 
-**Status:** plan accepted for Project 1. Language locked to **Python + Postgres**. V1 design is in `projects/workflow-engine/V1.md`. No code until that design is approved.
+**Status:** Project 1 V1 is implemented in **this** repository. Project 2 and Project 3 each get their **own git remote** — never a monorepo, never a nested package in this tree. Language for Project 1 is locked to **Python + Postgres**. V1 design: `docs/planning/V1.md`.
 
 ---
 

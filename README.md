@@ -1,5 +1,7 @@
 # Durable workflow / job execution engine
 
+This repository is **Project 1 only**. The AI reliability control plane (Project 2) and the event platform (Project 3) are **separate git repositories**, not folders in this tree. See [SIBLING_PROJECTS.md](SIBLING_PROJECTS.md).
+
 A worker can die after performing an external side effect but before acknowledging the step. Retrying the whole job then charges twice, emails twice, or provisions twice. This engine keeps **per-step durable state**, claims work with a **lease and fencing token**, and makes that failure mode visible instead of hiding it.
 
 **Guarantee: at-least-once step execution.** It does not claim exactly-once. Effectively-once side effects happen only when a handler cooperates with a stable idempotency key. The laboratory handlers prove both sides of that sentence.

@@ -8,13 +8,14 @@ Each system is a **separate git remote**. Same Postgres *server* is allowed. Sha
 | 2 | AI reliability control plane | `ai-reliability-control-plane` | V1 + V2 (async traces); own git |
 | 3 | Real-time event / notification platform | `realtime-event-platform` | V1 + V2 (chunked fan-out); own git |
 
-Push each repo to **both** Origin and GitHub when remotes exist:
+Push each repo to **both** Origin and GitHub. The agent VM cannot do that: its Origin token is scoped to this session only, and `gh` is not logged in here.
 
-```bash
-git remote add origin <origin-url>
-git remote add github git@github.com:<org>/<name>.git
-git push -u origin main
-git push -u github main
-```
+GitHub empty remotes (your WSL session):
 
-This agent’s Origin token cannot `origin repo create`. `gh` is not logged in here, so GitHub.com creates/pushes must be done after `gh auth login` (or by creating the empty repos in the GitHub UI and sending the URLs).
+- https://github.com/Ashishkosana/ai-reliability-control-plane
+- https://github.com/Ashishkosana/realtime-event-platform
+- https://github.com/Ashishkosana/platform-forge — create if missing
+
+Origin remotes already exist under `ashishkosanagmailcom/` for all three names.
+
+**On WSL**, after `gh auth login`, copy `handoff/` from this tree and run `./handoff/push_to_remotes.sh`. That clones the `.bundle` files (existing history) and pushes `main` to `github` and `origin`. Delete `handoff/` from this repo after a successful push.

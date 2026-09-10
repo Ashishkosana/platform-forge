@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Durable step runner — ops console</title>
+  <style>
+    :root {
+      --bg: #12110e;
+      --panel: #1c1a16;
+      --ink: #f3ead3;
+      --muted: #9a917c;
+      --line: #3a362c;
+      --run: #e0a106;
+      --ok: #7dba6a;
+      --bad: #d45c4a;
+      --info: #6ea8b8;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+    header {
+      padding: 18px 22px 12px;
+      border-bottom: 1px solid var(--line);
+    }
+    header h1 { margin: 0 0 6px; font-size: 18px; letter-spacing: 0.04em; font-weight: 600; }
+    header p { margin: 0; color: var(--muted); max-width: 78ch; }
+    .guarantee { color: var(--run); }
+    main { display: grid; grid-template-columns: 320px 1fr 1fr; gap: 0; min-height: calc(100vh - 92px); }
+    @media (max-width: 980px) { main { grid-template-columns: 1fr; } }
+    section { border-right: 1px solid var(--line); padding: 16px; overflow: auto; }
+    section:last-child { border-right: 0; }
+    h2 { margin: 0 0 12px; font-size: 12px; text-transform: uppercase; letter-spacing: 0.12em; color: var(--muted); }
+    label { display: block; color: var(--muted); font-size: 11px; margin: 10px 0 4px; text-transform: uppercase; letter-spacing: 0.08em; }
+    input, select, textarea, button {
+      font: inherit; color: var(--ink); background: #10100d; border: 1px solid var(--line); border-radius: 2px;
+    }
+    input, select, textarea { width: 100%; padding: 7px 8px; }
+    textarea { min-height: 72px; }
+    button { padding: 7px 10px; cursor: pointer; background: #2a261c; }
+    button:hover { border-color: var(--run); }
+    button.danger { color: var(--bad); }
+    .row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+    .job { padding: 8px; border: 1px solid var(--line); margin-bottom: 8px; cursor: pointer; }
+    .job.active { border-color: var(--run); }
+    .status { font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; }
+    .queued, .pending, .blocked { color: var(--muted); }
+    .running { color: var(--run); }
+    .succeeded { color: var(--ok); }
+    .dead_lettered, .cancelled, .failed, .rejected_fence, .timeout { color: var(--bad); }
+    table { width: 100%; border-collapse: collapse; font-size: 12px; }
+    th, td { text-align: left; padding: 5px 6px; border-bottom: 1px solid var(--line); vertical-align: top; }
+    .kv { color: var(--muted); }
+    .flash { color: var(--info); min-height: 1.4em; margin-top: 8px; }
+    .workers { margin-top: 16px; }
+    code { color: var(--run); }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Durable step runner</h1>
+    <p>
+      A worker can die after a side effect and before it writes step status.
+      This console exists to show that: <span class="guarantee">at-least-once attempts</span>,
+      lease steal, fencing rejection, and the difference between a naive effect and an idempotent one.
+      It does not claim exactly-once.
+    </p>
+  </header>
+  <main>
+    <section>
+      <h2>Submit</h2>
+      <label>Workflow</label>
+      <select id="workflow"></select>
+      <label>Idempotency key</label>
+      <input id="key" placeholder="unique-per-logical-job" />
+      <label>Input JSON</label>
+      <textarea id="input">{}</textarea>
+      <div class="row">
+        <button id="submit">Submit job</button>
+        <button id="refresh">Refresh</button>
+      </div>
+      <p class="flash" id="flash"></p>
+      <div class="workers" id="demoBox" hidden>
+        <h2>Demo workers</h2>
+        <p class="kv">SIGKILL = crash. SIGSTOP = zombie (heartbeats stop, process still “running”).</p>
+        <div class="row">
+          <button id="startW">Start worker</button>
+        </div>
+        <div id="workerList"></div>
+      </div>
+      <h2>Lab effects</h2>
+      <div id="effects"></div>
+    </section>
+    <section>
+      <h2>Jobs</h2>
+      <div class="row">
+        <button id="onlyStuck">Stuck only</button>
+        <button id="allJobs">All</button>
+      </div>
+      <div id="jobs"></div>
+    </section>
+    <section>
+      <h2>Job detail</h2>
+      <div id="detail"><p class="kv">Select a job.</p></div>
+    </section>
+  </main>
+  <script>
+    const $ = (id) => document.getElementById(id);
+    let selected = null;
+    let stuckOnly = false;
+    let demo = false;
+
+    function statusSpan(s) {
+      return `<span class="status ${s}">${s}</span>`;
+    }
+
+    async function api(path, opts) {
+      const res = await fetch(path, opts);
+      const text = await res.text();
+      let data = null;
+      try { data = text ? JSON.parse(text) : null; } catch { data = { message: text }; }
+      if (!res.ok) throw new Error((data && (data.message || data.detail && data.detail.message)) || res.statusText);
+      return data;
+    }
+
+    async function loadWorkflows() {
+      const data = await api("/workflows");
+      $("workflow").innerHTML = data.workflows.map(w =>
+        `<option value="${w.name}">${w.name} (${w.steps.map(s => s.name).join(" → ")})</option>`
+      ).join("");
+    }
+
+    async function loadJobs() {
+      const q = stuckOnly ? "?stuck=true" : "";
+      const data = await api("/jobs" + q);
+      $("jobs").innerHTML = data.jobs.map(j => `
+        <div class="job ${j.id === selected ? "active" : ""}" data-id="${j.id}">
+          <div>${statusSpan(j.status)} <code>${j.workflow_name}</code></div>
+          <div class="kv">${j.id.slice(0,8)} · key=${j.idempotency_key}</div>
+        </div>
+      `).join("") || `<p class="kv">No jobs.</p>`;
+      for (const el of document.querySelectorAll(".job")) {
+        el.onclick = () => { selected = el.dataset.id; loadDetail(); loadJobs(); };
+      }
+    }
+
+    async function loadDetail() {
+      if (!selected) return;
+      const j = await api("/jobs/" + selected);
+      const steps = j.steps.map(s => {
+        const attempts = (s.attempts || []).map(a =>
+          `<div class="kv">token=${a.fencing_token} ${statusSpan(a.outcome)} ${a.worker_id} ${a.error ? "· " + a.error : ""}</div>`
+        ).join("");
+        return `<tr>
+          <td>${s.seq} ${s.name}</td>
+          <td>${statusSpan(s.status)}</td>
+          <td>fence=${s.fencing_token} attempts=${s.attempt_count}/${s.max_attempts}</td>
+        </tr>
+        <tr><td colspan="3">${attempts || '<span class="kv">no attempts</span>'}</td></tr>`;
+      }).join("");
+      $("detail").innerHTML = `
+        <p>${statusSpan(j.status)} <code>${j.workflow_name}</code></p>
+        <p class="kv">${j.id}</p>
+        <p class="kv">idempotency_key=${j.idempotency_key}</p>
+        <div class="row">
+          <button id="cancel">Cancel</button>
+          <button id="replay">Replay dead-lettered step</button>
+        </div>
+        <table>
+          <thead><tr><th>Step</th><th>State</th><th>Lease / fence</th></tr></thead>
+          <tbody>${steps}</tbody>
+        </table>
+      `;
+      $("cancel").onclick = async () => {
+        try { await api("/jobs/" + j.id + "/cancel", { method: "POST" }); flash("cancelled"); }
+        catch (e) { flash(e.message); }
+      };
+      $("replay").onclick = async () => {
+        const dead = j.steps.find(s => s.status === "dead_lettered");
+        if (!dead) { flash("no dead-lettered step"); return; }
+        try { await api(`/jobs/${j.id}/steps/${dead.name}/replay`, { method: "POST" }); flash("replayed " + dead.name); }
+        catch (e) { flash(e.message); }
+      };
+    }
+
+    async function loadEffects() {
+      const data = await api("/lab/effects");
+      $("effects").innerHTML = data.effects.map(e =>
+        `<div class="kv">${e.effect_key}<br>write_count=<b>${e.write_count}</b> last_token=${e.last_token}</div>`
+      ).join("") || `<p class="kv">No lab effects yet.</p>`;
+    }
+
+    async function loadWorkers() {
+      try {
+        const data = await api("/demo/workers");
+        demo = true;
+        $("demoBox").hidden = false;
+        $("workerList").innerHTML = data.workers.map(w => `
+          <div class="row">
+            <span>pid ${w.pid} ${w.alive ? statusSpan("running") : statusSpan("cancelled")}</span>
+            <button data-kill="${w.pid}" class="danger">SIGKILL</button>
+            <button data-stop="${w.pid}">SIGSTOP</button>
+            <button data-cont="${w.pid}">SIGCONT</button>
+          </div>
+        `).join("") || `<p class="kv">No workers. Start one.</p>`;
+        for (const b of document.querySelectorAll("[data-kill]")) {
+          b.onclick = async () => { await api("/demo/workers/" + b.dataset.kill + "/kill", { method: "POST" }); };
+        }
+        for (const b of document.querySelectorAll("[data-stop]")) {
+          b.onclick = async () => { await api("/demo/workers/" + b.dataset.stop + "/stop", { method: "POST" }); };
+        }
+        for (const b of document.querySelectorAll("[data-cont]")) {
+          b.onclick = async () => { await api("/demo/workers/" + b.dataset.cont + "/cont", { method: "POST" }); };
+        }
+      } catch {
+        $("demoBox").hidden = true;
+      }
+    }
+
+    function flash(msg) { $("flash").textContent = msg; }
+
+    $("submit").onclick = async () => {
+      let payload;
+      try { payload = JSON.parse($("input").value || "{}"); }
+      catch { flash("input must be JSON"); return; }
+      try {
+        const job = await api("/jobs", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            workflow_name: $("workflow").value,
+            idempotency_key: $("key").value || ("k-" + Date.now()),
+            input: payload
+          })
+        });
+        selected = job.id;
+        flash("submitted " + job.id);
+      } catch (e) { flash(e.message); }
+    };
+    $("refresh").onclick = tick;
+    $("onlyStuck").onclick = () => { stuckOnly = true; loadJobs(); };
+    $("allJobs").onclick = () => { stuckOnly = false; loadJobs(); };
+    $("startW").onclick = async () => { await api("/demo/workers/start", { method: "POST" }); };
+
+    async function tick() {
+      try {
+        await loadJobs();
+        await loadDetail();
+        await loadEffects();
+        await loadWorkers();
+      } catch (e) { flash(e.message); }
+    }
+    loadWorkflows().then(tick);
+    setInterval(tick, 1000);
+  </script>
+</body>
+</html>

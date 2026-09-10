@@ -1,5 +1,8 @@
-# Project 2 is a separate git repository. Never commit it here.
+# Sibling projects must never be nested in this tree.
 /ai-reliability-control-plane/
+/realtime-event-platform/
+/event-notification-platform/
+/projects/
 
 .venv/
 __pycache__/

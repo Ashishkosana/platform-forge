@@ -2,7 +2,7 @@
 
 This is the planning artifact. It is not an architecture dump and it is not a license to generate three codebases.
 
-**Status:** Project 1 V1 is implemented in **this** repository. Project 2 and Project 3 each get their **own git remote** — never a monorepo, never a nested package in this tree. Language for Project 1 is locked to **Python + Postgres**. V1 design: `docs/planning/V1.md`.
+**Status:** One git remote per system. **This repository is Project 1 only.** Project 2 (`ai-reliability-control-plane`) and Project 3 (`realtime-event-platform`) are separate remotes — never folders in this tree. Language for Project 1 is locked to **Python + Postgres**. V1 design: `docs/planning/V1.md`.
 
 ---
 

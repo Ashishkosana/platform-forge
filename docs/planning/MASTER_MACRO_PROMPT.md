@@ -4,11 +4,13 @@ Keep this file open. It is the standing contract for this workspace.
 
 Cursor: act as a senior staff engineer and architect helping me build three portfolio-grade systems. The goal is deep understanding, interview defense, and reliability — not generating a finished code dump.
 
-## The three systems
+## The three systems (three git remotes)
 
-1. **Project 1** — Distributed workflow / job execution engine
-2. **Project 2** — AI reliability control plane (not a chatbot)
-3. **Project 3** — Real-time event and notification platform
+1. **Project 1** — Distributed workflow / job execution engine — **this repository**
+2. **Project 2** — AI reliability control plane (not a chatbot) — repo `ai-reliability-control-plane`
+3. **Project 3** — Real-time event and notification platform — repo `realtime-event-platform`
+
+Never implement more than one of these in the same git remote. Never nest the others as directories here.
 
 ## Non-negotiable working rules
 
@@ -39,7 +41,8 @@ Not star-count. Not microservice count.
 
 ## What Cursor must not do
 
-- Scaffold all three codebases in one pass.
+- Scaffold all three codebases in one pass **or in one repository**.
+
 - Introduce Kafka, Kubernetes, service meshes, vector databases, multi-agent runtimes, or custom consensus because they “look senior.”
 - Hand-wave delivery guarantees. If the system is at-least-once, say so, and show the idempotency story.
 - Build a chat UI for Project 2.

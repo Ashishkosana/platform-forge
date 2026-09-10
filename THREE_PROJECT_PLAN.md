@@ -38,7 +38,7 @@ Recommended language split — justified, not decorative:
 | 2. AI control plane | Python | The domain objects are traces, evals, token accounting, and provider SDKs. Fighting that in Go is fashion. |
 | 3. Event / notification | Go + Postgres | Same durability toolkit as Project 1, plus connections (WebSocket/SSE). Reuse mental models; do not invent a broker yet. |
 
-If you want a single language across all three, use Go and accept that Project 2's eval story will be clumsier. Do not use three unrelated stacks.
+Project 1 is locked to Python. If you want a single language across all three, stay on Python + Postgres and accept that Project 3 will not get Go's connection model. Do not introduce a third stack.
 
 ---
 

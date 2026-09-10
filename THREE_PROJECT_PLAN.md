@@ -2,7 +2,7 @@
 
 This is the planning artifact. It is not an architecture dump and it is not a license to generate three codebases.
 
-**Status:** waiting for approval. After you approve, pick **one** project. The next deliverable is that project's `V1.md` (state machine, storage, APIs, drill scripts) — still not a full implementation until you say go.
+**Status:** plan accepted for Project 1. Language locked to **Python + Postgres**. V1 design is in `projects/workflow-engine/V1.md`. No code until that design is approved.
 
 ---
 
@@ -34,7 +34,7 @@ Recommended language split — justified, not decorative:
 
 | Project | Default | Why this, not the other |
 | --- | --- | --- |
-| 1. Workflow engine | Go + Postgres | Leases, `FOR UPDATE SKIP LOCKED`, goroutine workers, and crash recovery are the whole point. Go matches how you defend this in a systems interview. |
+| 1. Workflow engine | **Python + Postgres** (locked) | Same durability story as the Go default: leases, `SKIP LOCKED`, crash recovery. Python is a product constraint, not a fashion choice; we pay with the GIL and cooperative timeouts (see V1.md). |
 | 2. AI control plane | Python | The domain objects are traces, evals, token accounting, and provider SDKs. Fighting that in Go is fashion. |
 | 3. Event / notification | Go + Postgres | Same durability toolkit as Project 1, plus connections (WebSocket/SSE). Reuse mental models; do not invent a broker yet. |
 
@@ -104,7 +104,7 @@ Success for V1: you can draw the step state machine on a whiteboard and it match
 | Execution model | DB state machine vs event-sourced history | Rows for job/step/attempt | You can `SELECT` the truth. Replay is optional later | You need deterministic replay, timers, or “why did it do that” from a history log |
 | Worker communication | Poll vs listen/notify vs push | Poll with backoff + optional `LISTEN` | Poll is correct under load; LISTEN is a latency optimization | p99 schedule latency is the SLO and poll interval is the cause |
 | Exactly-once | 2PC vs outbox vs idempotent handlers | At-least-once + idempotency keys on effects | Honest. 2PC against arbitrary HTTP is a lie | A handler cannot be made idempotent and duplicates are costly |
-| Language runtime | Threads vs processes vs remote executors | In-process Go workers, many procs | Distribution = shared DB + leases, not a mesh | CPU isolation or multi-language handlers become the problem |
+| Language runtime | Threads vs processes vs remote executors | Python **OS processes** + optional in-process slots | Distribution = shared DB + leases; `kill -9` is per process | CPU isolation needs more processes (GIL); remote executors if handlers must be sandboxed |
 
 ### Failure modes V1 must demonstrate
 

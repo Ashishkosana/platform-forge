@@ -56,4 +56,4 @@ Registered in `handlers.register_lab_workflows()`. Crash handlers (`crash_naive`
 
 ## Demo mode
 
-`DEMO_MODE=true` enables `/demo/workers/*` (start, SIGKILL, SIGSTOP, SIGCONT). Labeled as demo. Off by default in `.env.example` wait — example sets true for local labs. Production must set `false`.
+`DEMO_MODE=true` enables `/demo/workers/*` (start, SIGKILL, SIGSTOP, SIGCONT) **only for worker PIDs this API process spawned**. The default in `.env.example` is `false`. Set `DEMO_MODE=true` locally when you want the console buttons. Never enable it on a shared network.

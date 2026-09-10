@@ -13,7 +13,7 @@
 | Memory | 15 GiB |
 | Python | 3.12.3 |
 | PostgreSQL | 16.15, `max_connections=100`, local Unix/TCP on 127.0.0.1 |
-| Method | `scripts/bench.py`: start API + N worker processes, sequential HTTP submit of M jobs, wait until all `succeeded`, compute wall jobs/s and schedule latency (`jobs.created_at` → min `attempts.started_at`) |
+| Method | `scripts/bench.py`: start API + N worker processes, sequential HTTP submit of M jobs, wait until all `succeeded`, compute wall jobs/s and schedule latency (`jobs.created_at` → min `attempts.started_at`). **The harness sets `POLL_INTERVAL_SECONDS=0.05`**, not the production default `0.25`. Jobs are submitted back-to-back, so schedule latency is mostly backlog drain, not idle-worker wait. Do not use these p50 numbers as evidence that LISTEN/NOTIFY is unnecessary. |
 
 Limitations of the method:
 

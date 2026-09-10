@@ -80,8 +80,18 @@ app = FastAPI(title="durable-workflow-engine", lifespan=lifespan)
 @app.middleware("http")
 async def limit_body(request: Request, call_next):  # type: ignore[no-untyped-def]
     length = request.headers.get("content-length")
-    if length and int(length) > settings.max_body_bytes:
+    if length:
+        if int(length) > settings.max_body_bytes:
+            return _error(413, "payload_too_large", "request body exceeds MAX_BODY_BYTES")
+        return await call_next(request)
+    body = await request.body()
+    if len(body) > settings.max_body_bytes:
         return _error(413, "payload_too_large", "request body exceeds MAX_BODY_BYTES")
+
+    async def receive() -> dict[str, object]:
+        return {"type": "http.request", "body": body, "more_body": False}
+
+    request = Request(request.scope, receive)
     return await call_next(request)
 
 
@@ -208,6 +218,23 @@ def _require_demo() -> None:
         )
 
 
+def _owned_worker(pid: int) -> subprocess.Popen[bytes] | None:
+    for proc in _workers:
+        if proc.pid == pid:
+            return proc
+    return None
+
+
+def _signal_owned(pid: int, sig: int) -> str | None:
+    if _owned_worker(pid) is None:
+        return "not_owned"
+    try:
+        os.kill(pid, sig)
+    except ProcessLookupError:
+        return "not_found"
+    return None
+
+
 @app.get("/demo/workers")
 def demo_workers() -> dict[str, Any]:
     _require_demo()
@@ -244,32 +271,29 @@ def demo_start_worker() -> dict[str, Any]:
 
 
 @app.post("/demo/workers/{pid}/kill")
-def demo_kill_worker(pid: int) -> dict[str, Any]:
+def demo_kill_worker(pid: int) -> Any:
     _require_demo()
-    try:
-        os.kill(pid, signal.SIGKILL)
-    except ProcessLookupError:
-        return {"pid": pid, "killed": False, "reason": "not_found"}
+    reason = _signal_owned(pid, signal.SIGKILL)
+    if reason:
+        return _error(404, reason, f"pid {pid} is not a demo worker")
     return {"pid": pid, "killed": True, "signal": "SIGKILL"}
 
 
 @app.post("/demo/workers/{pid}/stop")
-def demo_stop_worker(pid: int) -> dict[str, Any]:
+def demo_stop_worker(pid: int) -> Any:
     _require_demo()
-    try:
-        os.kill(pid, signal.SIGSTOP)
-    except ProcessLookupError:
-        return {"pid": pid, "stopped": False, "reason": "not_found"}
+    reason = _signal_owned(pid, signal.SIGSTOP)
+    if reason:
+        return _error(404, reason, f"pid {pid} is not a demo worker")
     return {"pid": pid, "stopped": True, "signal": "SIGSTOP"}
 
 
 @app.post("/demo/workers/{pid}/cont")
-def demo_cont_worker(pid: int) -> dict[str, Any]:
+def demo_cont_worker(pid: int) -> Any:
     _require_demo()
-    try:
-        os.kill(pid, signal.SIGCONT)
-    except ProcessLookupError:
-        return {"pid": pid, "continued": False, "reason": "not_found"}
+    reason = _signal_owned(pid, signal.SIGCONT)
+    if reason:
+        return _error(404, reason, f"pid {pid} is not a demo worker")
     return {"pid": pid, "continued": True, "signal": "SIGCONT"}
 
 

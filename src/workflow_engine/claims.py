@@ -76,17 +76,20 @@ RETURNING s.id, j.status AS job_status
 """
 
 COMPLETE_SUCCESS_SQL = """
-UPDATE steps
+UPDATE steps AS s
 SET status        = 'succeeded',
     output        = %(output)s,
     last_error    = NULL,
     leased_until  = NULL,
     worker_id     = NULL,
     updated_at    = now()
-WHERE id = %(step_id)s
-  AND fencing_token = %(fencing_token)s
-  AND status = 'running'
-RETURNING id, job_id, seq
+FROM jobs AS j
+WHERE s.id = %(step_id)s
+  AND s.job_id = j.id
+  AND s.fencing_token = %(fencing_token)s
+  AND s.status = 'running'
+  AND j.status IN ('queued', 'running')
+RETURNING s.id, s.job_id, s.seq
 """
 
 
@@ -212,10 +215,11 @@ def list_jobs(
             SELECT DISTINCT j.id, j.created_at
             FROM jobs j
             JOIN steps s ON s.job_id = j.id
-            WHERE (
-              (s.status = 'running' AND s.leased_until < now())
-              OR (s.status = 'pending' AND s.run_after <= now() - interval '30 seconds')
-            )
+            WHERE j.status IN ('queued', 'running')
+              AND (
+                (s.status = 'running' AND s.leased_until < now())
+                OR (s.status = 'pending' AND s.run_after <= now() - interval '30 seconds')
+              )
             ORDER BY j.created_at DESC
             LIMIT %s
             """,
@@ -263,7 +267,7 @@ def cancel_job(conn: Connection, job_id: UUID) -> dict[str, Any]:  # type: ignor
             leased_until = NULL,
             worker_id = NULL,
             updated_at = now()
-        WHERE job_id = %s AND status IN ('pending', 'blocked')
+        WHERE job_id = %s AND status IN ('pending', 'blocked', 'running')
         """,
         (job_id,),
     )
@@ -399,7 +403,7 @@ def heartbeat(
     fencing_token: int,
     lease_ttl: str,
 ) -> str | None:
-    """Return job status, or None if the lease is lost."""
+    """Return job status, 'cancelled' if the job/step was cancelled, or None if stolen."""
     row = conn.execute(
         HEARTBEAT_SQL,
         {
@@ -410,16 +414,45 @@ def heartbeat(
         },
     ).fetchone()
     conn.commit()
-    if row is None:
-        return None
-    return str(row["job_status"])
+    if row is not None:
+        return str(row["job_status"])
+    meta = conn.execute(
+        """
+        SELECT j.status AS job_status, s.status AS step_status
+        FROM steps s
+        JOIN jobs j ON j.id = s.job_id
+        WHERE s.id = %s AND s.fencing_token = %s
+        """,
+        (step_id, fencing_token),
+    ).fetchone()
+    if meta is not None and (
+        meta["job_status"] == "cancelled" or meta["step_status"] == "cancelled"
+    ):
+        return "cancelled"
+    return None
+
+
+def _cancel_owned_step(conn: Connection, claimed: ClaimedStep, error: str) -> str:  # type: ignore[type-arg]
+    conn.execute(
+        """
+        UPDATE steps
+        SET status = 'cancelled', leased_until = NULL, worker_id = NULL, updated_at = now()
+        WHERE id = %s AND fencing_token = %s AND status = 'running'
+        """,
+        (claimed.step_id, claimed.fencing_token),
+    )
+    _finish_attempt(conn, claimed.step_id, claimed.fencing_token, "cancelled", error)
+    conn.commit()
+    STEPS_COMPLETED.labels(step=claimed.name, outcome="cancelled").inc()
+    return "cancelled"
 
 
 def complete_success(
     conn: Connection,  # type: ignore[type-arg]
     claimed: ClaimedStep,
     output: dict[str, Any],
-) -> bool:
+) -> str:
+    """Return succeeded, cancelled, or rejected_fence."""
     row = conn.execute(
         COMPLETE_SUCCESS_SQL,
         {
@@ -429,9 +462,13 @@ def complete_success(
         },
     ).fetchone()
     if row is None:
+        job = conn.execute("SELECT status FROM jobs WHERE id = %s", (claimed.job_id,)).fetchone()
+        if job and job["status"] == "cancelled":
+            conn.rollback()
+            return _cancel_owned_step(conn, claimed, "job cancelled before complete")
         conn.rollback()
         _record_fence_reject(conn, claimed, "stale complete_success")
-        return False
+        return "rejected_fence"
     _finish_attempt(conn, claimed.step_id, claimed.fencing_token, "succeeded", None)
     next_seq = claimed.seq + 1
     unblocked = conn.execute(
@@ -458,7 +495,7 @@ def complete_success(
         )
     conn.commit()
     STEPS_COMPLETED.labels(step=claimed.name, outcome="succeeded").inc()
-    return True
+    return "succeeded"
 
 
 def complete_failure(
@@ -469,6 +506,7 @@ def complete_failure(
     base_backoff: float,
     max_backoff: float,
     rng: random.Random,
+    retryable: bool = True,
 ) -> str:
     job = conn.execute("SELECT status FROM jobs WHERE id = %s", (claimed.job_id,)).fetchone()
     job_status = job["status"] if job else "missing"
@@ -481,25 +519,18 @@ def complete_failure(
         (claimed.step_id, claimed.fencing_token),
     ).fetchone()
     if still_ours is None:
-        conn.rollback()
+        if job_status == "cancelled":
+            _finish_attempt(conn, claimed.step_id, claimed.fencing_token, "cancelled", error)
+            conn.commit()
+            STEPS_COMPLETED.labels(step=claimed.name, outcome="cancelled").inc()
+            return "cancelled"
         _record_fence_reject(conn, claimed, f"stale complete ({outcome})")
         return "rejected_fence"
 
     if job_status == "cancelled":
-        conn.execute(
-            """
-            UPDATE steps
-            SET status = 'cancelled', leased_until = NULL, worker_id = NULL, updated_at = now()
-            WHERE id = %s AND fencing_token = %s AND status = 'running'
-            """,
-            (claimed.step_id, claimed.fencing_token),
-        )
-        _finish_attempt(conn, claimed.step_id, claimed.fencing_token, "cancelled", error)
-        conn.commit()
-        STEPS_COMPLETED.labels(step=claimed.name, outcome="cancelled").inc()
-        return "cancelled"
+        return _cancel_owned_step(conn, claimed, error)
 
-    if claimed.attempt_count < claimed.max_attempts:
+    if retryable and claimed.attempt_count < claimed.max_attempts:
         delay = full_jitter(claimed.attempt_count, base_backoff, max_backoff, rng)
         conn.execute(
             """

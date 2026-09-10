@@ -6,7 +6,7 @@
 - Lease + heartbeat + fencing token (`claims.py`).
 - Idempotent submit, cancel, dead-letter, replay.
 - Ops console at `/` and CLI `workflow`.
-- pytest: **25 passed, 1 skipped** (Postgres bounce gated). Includes real worker subprocesses.
+- pytest: **29 passed, 1 skipped** (Postgres bounce gated; count from the post-review run). Includes real worker subprocesses.
 
 ## What was measured
 
@@ -22,6 +22,10 @@ See BENCHMARKS.md. Headline: 50 noop jobs, 1 worker, 64 B → **270 jobs/s**, sc
 
 - Claim SQL originally joined `steps` twice for previous_status; replaced with CTE fields to avoid UPDATE/FROM ambiguity.
 - Demo/API worker spawn used piped stdout (same deadlock risk). Fixed.
+- `complete_success` could mark a step succeeded after the job was cancelled. SQL now requires `jobs.status IN ('queued','running')`; worker prefers the cancel path over a handler return value.
+- Stuck-job listing ignored job status; cancel left running steps stranded. Cancel now flips running steps; stuck filter is `queued`/`running` only.
+- Demo SIGKILL/STOP/CONT accepted any PID. Signals are limited to API-spawned worker PIDs. `.env.example` defaults `DEMO_MODE=false`.
+- A single heartbeat exception was treated as lease loss. Two consecutive failures are tolerated before `lost`.
 
 ## Architecture changes because of evidence
 

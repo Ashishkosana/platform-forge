@@ -100,7 +100,7 @@ pytest -q
 - Linear pipelines only. No DAG, signals, or long timers.
 - Handler timeout is cooperative (Python cannot kill a stuck thread).
 - Polling, not `LISTEN/NOTIFY`.
-- No authentication. Demo worker kill endpoints exist only with `DEMO_MODE=true`.
+- No authentication. Demo worker kill endpoints exist only with `DEMO_MODE=true` and only signal processes this API started. `.env.example` defaults `DEMO_MODE=false`.
 - `http_post` is allowlisted to `ALLOWED_HTTP_HOSTS` to reduce SSRF.
 - Public deploy of workers + Postgres is **not** a Vercel-shaped app.
 

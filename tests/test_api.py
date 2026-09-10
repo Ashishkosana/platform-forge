@@ -87,3 +87,22 @@ def test_metrics_and_console(client: TestClient) -> None:
     page = client.get("/")
     assert page.status_code == 200
     assert "at-least-once" in page.text
+
+
+def test_stuck_excludes_cancelled(client: TestClient) -> None:
+    job = client.post(
+        "/jobs",
+        json={"workflow_name": "hang", "idempotency_key": "stuck-c", "input": {"seconds": 30}},
+    ).json()
+    res = client.post(f"/jobs/{job['id']}/cancel")
+    assert res.json()["status"] == "cancelled"
+    stuck = client.get("/jobs?stuck=true").json()["jobs"]
+    assert all(j["id"] != job["id"] for j in stuck)
+
+
+def test_demo_kill_rejects_foreign_pid(client: TestClient) -> None:
+    import os
+
+    res = client.post(f"/demo/workers/{os.getpid()}/kill")
+    assert res.status_code == 404
+    assert res.json()["code"] == "not_owned"

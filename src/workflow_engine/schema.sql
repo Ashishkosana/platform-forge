@@ -81,6 +81,10 @@ CREATE INDEX IF NOT EXISTS steps_claimable
   ON steps (run_after, id)
   WHERE status IN ('pending', 'running');
 
+CREATE INDEX IF NOT EXISTS steps_claimable_lease
+  ON steps (leased_until, id)
+  WHERE status = 'running';
+
 CREATE INDEX IF NOT EXISTS steps_job ON steps (job_id);
 
 CREATE INDEX IF NOT EXISTS jobs_status ON jobs (status, created_at);

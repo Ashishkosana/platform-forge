@@ -47,6 +47,7 @@ class Heartbeat:
         self.lost = threading.Event()
         self.cancelled = threading.Event()
         self.thread = threading.Thread(target=self._loop, name="heartbeat", daemon=True)
+        self._transient_failures = 0
 
     def start(self) -> None:
         self.thread.start()
@@ -59,6 +60,8 @@ class Heartbeat:
         return self.lost.is_set() or self.cancelled.is_set()
 
     def _loop(self) -> None:
+        # TTL is 3x heartbeat; tolerate two missed beats before treating as lost.
+        max_transient = 2
         while not self.stop.wait(self.settings.heartbeat_interval_seconds):
             try:
                 with connection() as conn:
@@ -71,8 +74,12 @@ class Heartbeat:
                     )
             except Exception:
                 logger.exception("heartbeat failed")
-                self.lost.set()
-                return
+                self._transient_failures += 1
+                if self._transient_failures > max_transient:
+                    self.lost.set()
+                    return
+                continue
+            self._transient_failures = 0
             if status is None:
                 self.lost.set()
                 log_event(
@@ -179,19 +186,6 @@ def execute_claimed(claimed: ClaimedStep, worker_id: str, settings: Settings) ->
         hb.join()
 
     with connection() as conn:
-        if output is not None:
-            ok = complete_success(conn, claimed, output)
-            log_event(
-                logger,
-                "succeeded" if ok else "fence_rejected",
-                job_id=str(claimed.job_id),
-                step_id=str(claimed.step_id),
-                step_name=claimed.name,
-                fencing_token=claimed.fencing_token,
-                attempt_count=claimed.attempt_count,
-                worker_id=worker_id,
-            )
-            return
         if error == "cancelled" or hb.cancelled.is_set():
             complete_failure(
                 conn,
@@ -211,6 +205,42 @@ def execute_claimed(claimed: ClaimedStep, worker_id: str, settings: Settings) ->
                 fencing_token=claimed.fencing_token,
                 attempt_count=claimed.attempt_count,
                 worker_id=worker_id,
+            )
+            return
+        if output is not None:
+            result = complete_success(conn, claimed, output)
+            log_event(
+                logger,
+                result,
+                job_id=str(claimed.job_id),
+                step_id=str(claimed.step_id),
+                step_name=claimed.name,
+                fencing_token=claimed.fencing_token,
+                attempt_count=claimed.attempt_count,
+                worker_id=worker_id,
+            )
+            return
+        if error and error.startswith("unregistered handler"):
+            complete_failure(
+                conn,
+                claimed,
+                error,
+                "failed",
+                settings.base_backoff_seconds,
+                settings.max_backoff_seconds,
+                rng,
+                retryable=False,
+            )
+            log_event(
+                logger,
+                "dead_lettered",
+                job_id=str(claimed.job_id),
+                step_id=str(claimed.step_id),
+                step_name=claimed.name,
+                fencing_token=claimed.fencing_token,
+                attempt_count=claimed.attempt_count,
+                worker_id=worker_id,
+                error=error,
             )
             return
         if error == "lease_lost" or hb.lost.is_set():

@@ -20,7 +20,7 @@
 
 **Reason:** Polling is correct under load. LISTEN is a latency optimization with payload and connection caveats.
 
-**Evidence:** Schedule p50 was 4.5–6.8 ms for tiny jobs — below a human SLO. Not enough to add LISTEN.
+**Evidence:** Not a LISTEN decision. The published bench uses a 50ms poll and a pre-queued batch, so p50 4.5–6.8 ms does **not** measure idle wait. Keep polling until a bench of idle single-job latency at the default 0.25s poll shows the interval itself in p99.
 
 ## ADR 3 — At-least-once, not exactly-once
 

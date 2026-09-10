@@ -202,6 +202,35 @@ def test_cancel_during_hang(client: TestClient, database_url: str) -> None:
         time.sleep(1.5)
         got2 = fetch_job(client, job["id"])
         assert len(got2["steps"][0]["attempts"]) <= len(got["steps"][0]["attempts"]) + 1
+        stuck = client.get("/jobs?stuck=true").json()["jobs"]
+        assert all(j["id"] != job["id"] for j in stuck)
+    finally:
+        stop_worker(worker)
+
+
+def test_cancel_blocks_complete_success(client: TestClient, database_url: str) -> None:
+    """Handler may still return a result; the row commit must not be succeeded."""
+    job = client.post(
+        "/jobs",
+        json={
+            "workflow_name": "hang",
+            "idempotency_key": "cancel-success",
+            "input": {"seconds": 2},
+        },
+    ).json()
+    worker = start_worker(database_url)
+    try:
+        wait_until(
+            lambda: fetch_job(client, job["id"])["steps"][0]["status"] == "running",
+            timeout=10,
+        )
+        assert client.post(f"/jobs/{job['id']}/cancel").status_code == 200
+        time.sleep(3.5)
+        got = fetch_job(client, job["id"])
+        assert got["status"] == "cancelled"
+        assert got["steps"][0]["status"] != "succeeded"
+        outcomes = [a["outcome"] for a in got["steps"][0]["attempts"]]
+        assert "succeeded" not in outcomes
     finally:
         stop_worker(worker)
 

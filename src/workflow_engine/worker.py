@@ -290,6 +290,18 @@ def execute_claimed(claimed: ClaimedStep, worker_id: str, settings: Settings) ->
 
 def slot_loop(slot: int, settings: Settings, stop: threading.Event, boot: str) -> None:
     worker_id = f"{socket.gethostname()}:{os.getpid()}:{slot}:{boot}"
+    listen_conn = None
+    if settings.wake_mode == "listen":
+        try:
+            from psycopg import connect as pg_connect
+            from psycopg.rows import dict_row
+
+            listen_conn = pg_connect(settings.database_url, autocommit=True, row_factory=dict_row)
+            listen_conn.execute("LISTEN workflow_wake")
+            log_event(logger, "listen_started", slot=slot, channel="workflow_wake")
+        except Exception:
+            logger.exception("LISTEN failed; falling back to poll")
+            listen_conn = None
     while not stop.is_set():
         try:
             with connection() as conn:
@@ -299,13 +311,25 @@ def slot_loop(slot: int, settings: Settings, stop: threading.Event, boot: str) -
             stop.wait(min(2.0, settings.poll_interval_seconds * 4))
             continue
         if claimed is None:
-            stop.wait(settings.poll_interval_seconds)
+            if listen_conn is not None:
+                try:
+                    for _ in listen_conn.notifies(
+                        timeout=settings.poll_interval_seconds, stop_after=1
+                    ):
+                        break
+                except Exception:
+                    logger.exception("notify wait failed")
+                    stop.wait(settings.poll_interval_seconds)
+            else:
+                stop.wait(settings.poll_interval_seconds)
             continue
         try:
             execute_claimed(claimed, worker_id, settings)
         except Exception:
             logger.exception("execute failed")
             stop.wait(0.5)
+    if listen_conn is not None:
+        listen_conn.close()
 
 
 def main() -> None:

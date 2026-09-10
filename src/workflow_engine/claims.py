@@ -166,6 +166,7 @@ def submit_job(
                 step.timeout_seconds,
             ),
         )
+    conn.execute("NOTIFY workflow_wake")
     conn.commit()
     JOBS_SUBMITTED.labels(workflow=workflow_name, duplicate="false").inc()
     return load_job(conn, real_id), True
@@ -309,6 +310,7 @@ def replay_step(conn: Connection, job_id: UUID, step_name: str) -> dict[str, Any
         """,
         (job_id,),
     )
+    conn.execute("NOTIFY workflow_wake")
     conn.commit()
     return load_job(conn, job_id)
 
@@ -493,6 +495,7 @@ def complete_success(
             """,
             (claimed.job_id, claimed.job_id),
         )
+    conn.execute("NOTIFY workflow_wake")
     conn.commit()
     STEPS_COMPLETED.labels(step=claimed.name, outcome="succeeded").inc()
     return "succeeded"

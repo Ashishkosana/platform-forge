@@ -10,6 +10,8 @@ class Settings(BaseSettings):
     lease_ttl_seconds: float = 15.0
     heartbeat_interval_seconds: float = 5.0
     poll_interval_seconds: float = 0.25
+    # V2: LISTEN/NOTIFY wakes idle workers. "poll" is the V1 path (tests may force it).
+    wake_mode: str = "listen"
     worker_concurrency: int = 1
     base_backoff_seconds: float = 0.5
     max_backoff_seconds: float = 30.0

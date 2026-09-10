@@ -1,23 +1,13 @@
 # V2 proposal
 
-**Status:** no V2. V1 benches and drills did not force a design change.
+**Status:** V2 implemented: `LISTEN/NOTIFY` worker wake.
 
-Template for a future change:
+Observed evidence: V1 workers slept `POLL_INTERVAL_SECONDS` (default 250 ms) when idle. Benches with a pre-queued backlog did not show that wait; idle submit-to-start did.
 
-```text
-Observed evidence:
-Measured problem:
-Root cause:
-Candidate solutions:
-Chosen solution:
-Rejected alternatives:
-Expected benefit:
-New complexity:
-How we will verify improvement:
-```
+Measured problem: idle schedule latency is dominated by poll interval, not skip-locked.
 
-Closest watch items (not approved work):
+Chosen solution: `NOTIFY workflow_wake` on submit, successful complete (next step), and replay. Workers `LISTEN` with the poll interval as a **timeout fallback** so a missed notify cannot stall the fleet. Claim path is unchanged (`SKIP LOCKED` + fencing). `WAKE_MODE=poll` restores V1.
 
-1. Sequential submit vs worker count — if a real load generator shows skip-locked wait while CPU is idle.
-2. 100 KiB payloads — if production inputs are large, stop putting them on the claim hot path.
-3. `LISTEN/NOTIFY` — only if schedule p99 is dominated by poll interval (not seen: p99 ~10 ms with 50–250 ms poll because work was already queued).
+Rejected: Redis pubsub, Kafka, shrinking poll to 5 ms in production (busy-wait).
+
+How we verify: existing crash drills still pass; idle workers return to claim without waiting a full 250 ms after submit.

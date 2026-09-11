@@ -1,3 +1,19 @@
+#Platform Forge
+#Durable distributed workflow execution engine.
+
+#Python • FastAPI • PostgreSQL • Prometheus
+
+#Key engineering problems:
+✓ Worker crash recovery
+✓ Distributed locking with SKIP LOCKED
+✓ Lease expiration and work stealing
+✓ Fencing tokens against zombie workers
+✓ Idempotent execution
+✓ Exponential backoff + jitter
+✓ Dead-letter queues
+✓ Failure-injection testing
+
+
 # Durable workflow / job execution engine
 
 This repository is **Project 1 only**. The AI reliability control plane (Project 2) and the event platform (Project 3) are **separate git repositories**, not folders in this tree. See [SIBLING_PROJECTS.md](SIBLING_PROJECTS.md).

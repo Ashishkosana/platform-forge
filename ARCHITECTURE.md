@@ -1,6 +1,40 @@
-# Architecture — V1 durable step runner
+# Architecture — durable step runner
 
 This is the implemented system, not a target picture of Temporal.
+
+```mermaid
+flowchart TB
+  subgraph apiProc [API process]
+    HTTP[FastAPI submit / inspect / cancel / replay]
+  end
+  subgraph db [PostgreSQL 16]
+    Jobs[jobs]
+    Steps[steps]
+    Attempts[attempts]
+  end
+  subgraph fleet [Worker processes]
+    S1[slot threads]
+  end
+  HTTP --> Jobs
+  HTTP --> Steps
+  S1 -->|"CLAIM / HEARTBEAT / COMPLETE"| Steps
+  S1 --> Attempts
+```
+
+Claim → lease → heartbeat → execute → complete (and steal):
+
+```mermaid
+stateDiagram-v2
+  [*] --> blocked: seq greater than 1
+  [*] --> pending: seq 1
+  blocked --> pending: previous step succeeded
+  pending --> running: SKIP LOCKED claim, fence++
+  running --> succeeded: complete with matching fence
+  running --> pending: failure, jittered run_after
+  running --> dead_lettered: max_attempts
+  running --> cancelled: cancel_job
+  running --> running: lease expired, another worker claims, fence++
+```
 
 ## Processes
 
@@ -35,6 +69,8 @@ SQL lives in `src/workflow_engine/claims.py` as `CLAIM_SQL`, `HEARTBEAT_SQL`, `C
 - Complete success: same predicate. Zero rows → `rejected_fence`. Do not unblock the next step.
 
 Worker wall clocks are not used for `leased_until`.
+
+Idle workers: `WAKE_MODE=listen` (default) issues `LISTEN workflow_wake` and waits on notifies with `timeout=POLL_INTERVAL_SECONDS`. Submit, successful complete, and replay `NOTIFY` that channel. `WAKE_MODE=poll` sleeps the interval. Either way the next action is `CLAIM_SQL`.
 
 ## Why two workers can overlap
 

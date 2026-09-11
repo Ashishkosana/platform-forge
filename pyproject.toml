@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "durable-workflow-engine"
 version = "0.1.0"
-description = "At-least-once durable step runner with Postgres leases and fencing tokens"
+description = "At-least-once durable step runner (Platform Forge): Postgres leases and fencing tokens"
 readme = "README.md"
 requires-python = ">=3.12"
 license = { text = "MIT" }

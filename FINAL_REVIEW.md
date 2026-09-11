@@ -30,7 +30,7 @@ See BENCHMARKS.md. Headline: 50 noop jobs, 1 worker, 64 B → **270 jobs/s**, sc
 ## Architecture changes because of evidence
 
 - None that add components. Crash-handler attempt gate is a lab handler change, not a queue change.
-- No Kafka/Redis/LISTEN added.
+- No Kafka/Redis added. V2 added `LISTEN/NOTIFY` as worker *wake* only; claim path is still skip-locked + fencing.
 
 ## Known limitations
 
@@ -52,12 +52,13 @@ README.md. Default API port **43180**. `DEMO_MODE=true` for the console worker b
 
 ## Potential production improvements
 
-Auth, non-superuser DB role, scrape all worker `/metrics` ports, payload off-row if 100 KiB becomes normal, LISTEN only with a latency SLO.
+Auth, non-superuser DB role, scrape all worker `/metrics` ports, payload off-row if 100 KiB becomes normal.
 
-## GitHub / three-repo status
+## GitHub
 
-This Cursor workspace is **not authenticated to GitHub** (`gh auth status` logged out). Separate GitHub repositories `durable-workflow-engine`, `ai-reliability-control-plane`, and `realtime-notification-platform` were **not created** to avoid colliding with an unknown account. **Owner action:** connect GitHub (Create repo pill, or `gh auth login`) and split remotes. Do not assume this Origin-backed workspace is those three names.
+Private remote: https://github.com/Ashishkosana/platform-forge  
+Siblings: `ai-reliability-control-plane`, `realtime-event-platform` (separate histories).
 
 ## CI
 
-`.github/workflows/ci.yml` is written. It has not run on GitHub because there is no GitHub remote. Local stand-in: `ruff`, `mypy`, `pytest`.
+`.github/workflows/ci.yml`: ruff, ruff format, mypy, pytest against Postgres 16. Postgres bounce remains skipped unless `DRILL_PG_BOUNCE=1`.

@@ -14,13 +14,23 @@
 
 **Reconsider when:** Claim latency or lock wait saturates while CPUs are idle (not observed at 50 noop jobs).
 
-## ADR 2 — Polling, not LISTEN/NOTIFY
+## ADR 2 — Polling as the correctness path
 
-**Decision:** `POLL_INTERVAL_SECONDS` (default 0.25s, tests 0.05s).
+**Decision (V1):** `POLL_INTERVAL_SECONDS` (default 0.25s, tests 0.05s).
 
 **Reason:** Polling is correct under load. LISTEN is a latency optimization with payload and connection caveats.
 
-**Evidence:** Not a LISTEN decision. The published bench uses a 50ms poll and a pre-queued batch, so p50 4.5–6.8 ms does **not** measure idle wait. Keep polling until a bench of idle single-job latency at the default 0.25s poll shows the interval itself in p99.
+**Evidence:** The published bench uses a 50ms poll and a pre-queued batch, so p50 4.5–6.8 ms does **not** measure idle wait.
+
+## ADR 10 — LISTEN/NOTIFY as wake, poll as fallback (V2)
+
+**Decision:** Default `WAKE_MODE=listen`. `NOTIFY workflow_wake` on submit, successful complete (next step), and replay. Workers `LISTEN` with the poll interval as **timeout**. `WAKE_MODE=poll` restores V1.
+
+**Reason:** Idle schedule latency is dominated by poll interval, not skip-locked. Claim, lease, and fence stay on SQL.
+
+**Rejected:** Redis pubsub, Kafka, shrinking production poll to 5 ms (busy-wait).
+
+**Unchanged:** A missed notify cannot stall the fleet; the listen wait returns to `CLAIM_SQL`.
 
 ## ADR 3 — At-least-once, not exactly-once
 
